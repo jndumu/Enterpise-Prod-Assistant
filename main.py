@@ -72,7 +72,7 @@ async def home(request: Request):
     Returns:
         HTML page with document upload and Q&A interface
     """
-    return templates.TemplateResponse("minimal.html", {"request": request})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/health")
 async def health():

@@ -1,33 +1,82 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Learning Login</title>
-    <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}" />
-  </head>
-  <body>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Enterprise Assistant</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { background: #f5f5f5; padding: 20px; border-radius: 10px; }
+        input, textarea, button { width: 100%; margin: 10px 0; padding: 10px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .answer { background: #e9f7ef; padding: 15px; border-radius: 5px; margin-top: 20px; }
+        .error { background: #f8d7da; padding: 15px; border-radius: 5px; margin-top: 20px; }
+    </style>
+</head>
+<body>
     <div class="container">
-      <form class="card" action="/login" method="post">
-        <h1 class="heading">Welcome</h1>
-
-        {% if error %}
-        <div class="field" style="color:#b91c1c; font-size:14px;">{{ error }}</div>
-        {% endif %}
-
-        <div class="field">
-          <label for="username">Username</label>
-          <input id="username" name="username" type="text" placeholder="Enter username" required />
-        </div>
-
-        <div class="field">
-          <label for="password">Password</label>
-          <input id="password" name="password" type="password" placeholder="Enter password" required />
-        </div>
-
-        <button class="btn" type="submit">Login</button>
-      </form>
+        <h1>🚀 Enterprise Production Assistant</h1>
+        
+        <h3>📄 Upload Document</h3>
+        <input type="file" id="file" accept=".pdf">
+        <button onclick="upload()">Upload PDF</button>
+        <div id="upload-status"></div>
+        
+        <h3>❓ Ask Question</h3>
+        <textarea id="question" rows="3" placeholder="What would you like to know?"></textarea>
+        <button onclick="ask()">Get Answer</button>
+        
+        <div id="answer" style="display:none;"></div>
     </div>
-  </body>
-  
+
+    <script>
+        async function upload() {
+            const file = document.getElementById('file').files[0];
+            if (!file) return alert('Select a PDF file');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            document.getElementById('upload-status').innerHTML = 'Uploading...';
+            
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const result = await response.json();
+                
+                document.getElementById('upload-status').innerHTML = 
+                    result.success ? `✅ ${result.message}` : `❌ ${result.error}`;
+            } catch (error) {
+                document.getElementById('upload-status').innerHTML = '❌ Upload failed';
+            }
+        }
+        
+        async function ask() {
+            const question = document.getElementById('question').value;
+            if (!question) return alert('Enter a question');
+            
+            const formData = new FormData();
+            formData.append('question', question);
+            
+            document.getElementById('answer').innerHTML = 'Thinking...';
+            document.getElementById('answer').style.display = 'block';
+            
+            try {
+                const response = await fetch('/query', { method: 'POST', body: formData });
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('answer').className = 'answer';
+                    document.getElementById('answer').innerHTML = 
+                        `<strong>Answer:</strong> ${result.answer}<br>
+                         <small>Source: ${result.source} | Confidence: ${Math.round(result.confidence * 100)}%</small>`;
+                } else {
+                    document.getElementById('answer').className = 'error';
+                    document.getElementById('answer').innerHTML = `Error: ${result.error}`;
+                }
+            } catch (error) {
+                document.getElementById('answer').className = 'error';
+                document.getElementById('answer').innerHTML = 'Request failed';
+            }
+        }
+    </script>
+</body>
 </html>
