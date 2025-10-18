@@ -1,0 +1,29 @@
+astra_db:
+  collection_name: "semantic_data"
+
+embedding_model:
+  provider: "google"
+  model_name: "models/text-embedding-004"
+
+retriever:
+  top_k: 3
+
+llm:
+  groq:
+    provider: "groq"
+    model_name: "mixtral-8x7b-32768"
+    temperature: 0
+    max_output_tokens: 2048
+
+  google:
+    provider: "google"
+    model_name: "gemini-1.5-pro"
+    temperature: 0
+    max_output_tokens: 2048
+
+  openai:
+    provider: "openai"
+    model_name: "gpt-4o"
+
+ingestion:
+  data_dir: "datafolder"

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Production RAG System</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1 class="heading">RAG Document Q&A</h1>
+        <p class="sub">Upload documents and ask questions to get precise answers</p>
+
+        <!-- File Upload Section -->
+        <div class="field">
+          <label for="file">Upload Document (PDF)</label>
+          <input id="file" type="file" accept=".pdf" />
+          <button class="btn" onclick="uploadFile()">Upload & Process</button>
+        </div>
+
+        <div id="upload-status" style="margin: 10px 0;"></div>
+
+        <!-- Q&A Section -->
+        <div class="field">
+          <label for="question">Ask a Question</label>
+          <textarea id="question" placeholder="What would you like to know about your documents?" rows="3" style="width:100%; padding:10px; border:1px solid #ccc; border-radius:4px;"></textarea>
+        </div>
+
+        <button class="btn" onclick="askQuestion()">Ask Question</button>
+        
+        <div id="answer-section" style="margin-top: 20px; display: none;">
+          <h3>Answer:</h3>
+          <div id="answer-content" style="background: #f8f9fa; padding: 15px; border-radius: 6px; border-left: 4px solid #007bff;"></div>
+          <div id="answer-meta" style="font-size: 12px; color: #666; margin-top: 10px;"></div>
+        </div>
+
+        <!-- Session Management -->
+        <div style="margin-top: 20px;">
+          <button class="btn" onclick="clearSession()" style="background: #dc3545;">Clear Conversation</button>
+          <span id="session-info" style="font-size: 12px; color: #666; margin-left: 10px;"></span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+      
+      async function uploadFile() {
+        const fileInput = document.getElementById('file');
+        const statusDiv = document.getElementById('upload-status');
+        
+        if (!fileInput.files[0]) {
+          statusDiv.innerHTML = '<span style="color: red;">Please select a file</span>';
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        
+        statusDiv.innerHTML = '<span style="color: blue;">Uploading and processing...</span>';
+
+        try {
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            statusDiv.innerHTML = '<span style="color: green;">✓ ' + result.message + '</span>';
+          } else {
+            statusDiv.innerHTML = '<span style="color: red;">✗ Upload failed: ' + result.error + '</span>';
+          }
+        } catch (error) {
+          statusDiv.innerHTML = '<span style="color: red;">✗ Upload error: ' + error.message + '</span>';
+        }
+      }
+
+      async function askQuestion() {
+        const question = document.getElementById('question').value.trim();
+        const answerSection = document.getElementById('answer-section');
+        const answerContent = document.getElementById('answer-content');
+        const answerMeta = document.getElementById('answer-meta');
+        
+        if (!question) {
+          alert('Please enter a question');
+          return;
+        }
+
+        answerContent.innerHTML = 'Thinking...';
+        answerSection.style.display = 'block';
+
+        const formData = new FormData();
+        formData.append('question', question);
+        formData.append('session_id', sessionId);
+
+        try {
+          const response = await fetch('/query', {
+            method: 'POST',
+            body: formData
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            answerContent.innerHTML = result.answer;
+            answerMeta.innerHTML = `Source: ${result.source} | Confidence: ${(result.confidence * 100).toFixed(1)}% | Model: ${result.model || 'N/A'}`;
+            
+            // Update session info
+            if (result.memory_stats && result.memory_stats.turns) {
+              document.getElementById('session-info').innerHTML = `Session: ${result.memory_stats.turns} turns`;
+            }
+            
+            // Clear question for next input
+            document.getElementById('question').value = '';
+          } else {
+            answerContent.innerHTML = 'Error: ' + result.error;
+            answerMeta.innerHTML = '';
+          }
+        } catch (error) {
+          answerContent.innerHTML = 'Error: ' + error.message;
+          answerMeta.innerHTML = '';
+        }
+      }
+
+      async function clearSession() {
+        try {
+          await fetch(`/sessions/${sessionId}`, { method: 'DELETE' });
+          sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+          document.getElementById('session-info').innerHTML = 'Session cleared';
+          document.getElementById('answer-section').style.display = 'none';
+        } catch (error) {
+          alert('Failed to clear session');
+        }
+      }
+
+      // Allow Enter key to submit question
+      document.getElementById('question').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && e.ctrlKey) {
+          askQuestion();
+        }
+      });
+    </script>
+  </body>
+</html>

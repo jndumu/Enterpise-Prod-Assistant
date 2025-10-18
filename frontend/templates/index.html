@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Learning Login</title>
+    <link rel="stylesheet" href="{{ request.url_for('static', path='styles.css') }}" />
+  </head>
+  <body>
+    <div class="container">
+      <form class="card" action="/login" method="post">
+        <h1 class="heading">Welcome</h1>
+
+        {% if error %}
+        <div class="field" style="color:#b91c1c; font-size:14px;">{{ error }}</div>
+        {% endif %}
+
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" placeholder="Enter username" required />
+        </div>
+
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="Enter password" required />
+        </div>
+
+        <button class="btn" type="submit">Login</button>
+      </form>
+    </div>
+  </body>
+  
+</html>
