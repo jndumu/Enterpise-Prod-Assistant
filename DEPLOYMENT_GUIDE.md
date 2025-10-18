@@ -54,7 +54,7 @@ aws sts get-caller-identity
 
 ### 2.1 Prepare Terraform Variables
 ```bash
-cd infra
+cd infrastructure
 cp terraform.tfvars.example terraform.tfvars
 ```
 
@@ -146,7 +146,7 @@ aws ecs describe-services \
 ### 4.2 Check Application Health
 ```bash
 # Get your application URL from Terraform output
-LOAD_BALANCER_URL=$(terraform -chdir=infra output -raw application_url)
+LOAD_BALANCER_URL=$(terraform -chdir=infrastructure output -raw application_url)
 echo "Application URL: $LOAD_BALANCER_URL"
 
 # Test health endpoint
@@ -284,7 +284,7 @@ wait
 
 ```bash
 # Destroy infrastructure
-cd infra
+cd infrastructure
 terraform destroy
 # Type 'yes' when prompted
 

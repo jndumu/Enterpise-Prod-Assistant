@@ -51,6 +51,7 @@ python -m app.api.server
 │   ├── api/               # FastAPI server
 │   ├── services/          # Business logic
 │   └── core/              # Utilities
+├── infrastructure/         # Terraform & deployment
 ├── docs/                  # Documentation
 ├── tests/                 # Test suites
 ├── requirements/          # Dependencies
