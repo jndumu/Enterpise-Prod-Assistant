@@ -7,7 +7,7 @@ variable "app_name" {
 variable "aws_region" {
   description = "AWS region"
   type        = string
-  default     = "us-east-1"
+  default     = "us-east-2"
 }
 
 variable "astra_db_token" {
