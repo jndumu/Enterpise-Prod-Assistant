@@ -114,17 +114,28 @@ async def upload(file: UploadFile = File(...)):
         content = await file.read()
         pdf_reader = PdfReader(io.BytesIO(content))
         
-        # Extract text from all pages
-        text = "".join([page.extract_text() for page in pdf_reader.pages])
+        # Extract and clean text from all pages
+        raw_text = ""
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                # Clean up text formatting
+                page_text = page_text.replace('\n\n', '\n').replace('\t', ' ')
+                raw_text += page_text + "\n"
+        
+        # Clean and normalize text
+        text = ' '.join(raw_text.split())  # Remove extra whitespace
         
         # Generate unique document ID
         doc_id = hashlib.md5(content).hexdigest()[:8]
         
-        # Store document in memory
+        # Store document with metadata
         documents[doc_id] = {
             "filename": file.filename,
             "text": text,
+            "raw_text": raw_text,  # Keep original formatting for context
             "pages": len(pdf_reader.pages),
+            "word_count": len(text.split()),
             "uploaded_at": datetime.now().isoformat()
         }
         
@@ -132,7 +143,8 @@ async def upload(file: UploadFile = File(...)):
             "success": True,
             "message": f"Uploaded {file.filename} ({len(pdf_reader.pages)} pages)",
             "document_id": doc_id,
-            "pages_processed": len(pdf_reader.pages)
+            "pages_processed": len(pdf_reader.pages),
+            "word_count": len(text.split())
         }
         
     except Exception as e:
@@ -161,22 +173,48 @@ async def query(request: Optional[QueryRequest] = None, question: str = Form(Non
         if not q:
             return {"success": False, "error": "No question provided"}
         
-        # STEP 1: Search uploaded documents first
+        # STEP 1: Search uploaded documents with improved matching
+        best_match = None
+        best_score = 0
+        
         for doc_id, doc in documents.items():
-            # Simple keyword matching (production would use vector search)
-            if any(word.lower() in doc["text"].lower() for word in q.split()):
-                # Find most relevant line
-                lines = doc["text"].split('\n')
-                for line in lines:
-                    if any(word.lower() in line.lower() for word in q.split()) and len(line.strip()) > 20:
-                        return {
-                            "success": True,
-                            "answer": line[:500] + "..." if len(line) > 500 else line,
-                            "source": "uploaded_document",
+            # Enhanced text processing
+            doc_text = doc["text"].lower()
+            question_words = [word.lower().strip('.,!?;:') for word in q.split() if len(word) > 2]
+            
+            # Split document into sentences for better context
+            sentences = [s.strip() for s in doc["text"].replace('\n', ' ').split('.') if len(s.strip()) > 30]
+            
+            for sentence in sentences:
+                sentence_lower = sentence.lower()
+                # Calculate relevance score based on word matches
+                word_matches = sum(1 for word in question_words if word in sentence_lower)
+                
+                if word_matches > 0:
+                    # Calculate relevance score (0-1)
+                    relevance_score = word_matches / len(question_words)
+                    # Bonus for longer matches and sentence length
+                    if len(sentence) > 50:
+                        relevance_score += 0.1
+                    
+                    if relevance_score > best_score and relevance_score > 0.3:
+                        best_score = relevance_score
+                        best_match = {
+                            "answer": sentence[:800] + "..." if len(sentence) > 800 else sentence,
                             "filename": doc["filename"],
-                            "confidence": 0.8,
-                            "timestamp": datetime.now().isoformat()
+                            "confidence": min(0.95, relevance_score + 0.2)
                         }
+        
+        # Return best document match if found
+        if best_match:
+            return {
+                "success": True,
+                "answer": best_match["answer"],
+                "source": "uploaded_document",
+                "filename": best_match["filename"],
+                "confidence": best_match["confidence"],
+                "timestamp": datetime.now().isoformat()
+            }
         
         # STEP 2: Fallback to web search using DuckDuckGo
         try:
