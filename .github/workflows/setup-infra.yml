@@ -1,0 +1,40 @@
+name: Setup Infrastructure
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: enterprise-assistant
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Create Infrastructure
+      run: |
+        # Create ECR Repository
+        aws ecr create-repository --repository-name enterprise-assistant --region $AWS_REGION || echo "ECR exists"
+        
+        # Create ECS Cluster
+        aws ecs create-cluster --cluster-name enterprise-assistant --region $AWS_REGION || echo "Cluster exists"
+        
+        # Create CloudWatch Log Group
+        aws logs create-log-group --log-group-name /ecs/enterprise-assistant-svc --region $AWS_REGION || echo "Log group exists"
+        
+        # Store secrets in SSM
+        aws ssm put-parameter --name "/enterprise-assistant/astra-token" --value "${{ secrets.ASTRA_DB_APPLICATION_TOKEN }}" --type "SecureString" --overwrite || true
+        aws ssm put-parameter --name "/enterprise-assistant/astra-endpoint" --value "${{ secrets.ASTRA_DB_API_ENDPOINT }}" --type "SecureString" --overwrite || true  
+        aws ssm put-parameter --name "/enterprise-assistant/groq-key" --value "${{ secrets.GROQ_API_KEY }}" --type "SecureString" --overwrite || true
+        
+        echo "🎉 Infrastructure setup complete!"
+        echo "ECR Repository: $(aws sts get-caller-identity --query Account --output text).dkr.ecr.$AWS_REGION.amazonaws.com/enterprise-assistant"

@@ -1,0 +1,45 @@
+name: Enterprise Assistant Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: enterprise-assistant
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: Test
+      run: |
+        pip install -r requirements.txt
+        echo "ASTRA_DB_APPLICATION_TOKEN=test" > .env
+        echo "ASTRA_DB_API_ENDPOINT=https://test.com" >> .env
+        echo "GROQ_API_KEY=test" >> .env
+        python tests/test_pipeline.py
+    
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - uses: aws-actions/amazon-ecr-login@v2
+      id: ecr
+    
+    - name: Deploy
+      run: |
+        docker build -t ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }} .
+        docker push ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
+        echo "🚀 Deployed: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}"

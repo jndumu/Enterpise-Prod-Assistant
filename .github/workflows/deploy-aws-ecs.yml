@@ -1,0 +1,72 @@
+name: ECS Deploy
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: enterprise-assistant
+  ECS_SERVICE: enterprise-assistant-svc
+  ECR_REPO: enterprise-assistant
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - uses: aws-actions/amazon-ecr-login@v2
+      id: ecr
+    
+    - name: Build & Deploy
+      env:
+        REGISTRY: ${{ steps.ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build & Push
+        docker build -t $REGISTRY/$ECR_REPO:$IMAGE_TAG .
+        docker push $REGISTRY/$ECR_REPO:$IMAGE_TAG
+        
+        # Create task definition
+        cat > task.json << EOF
+        {
+          "family": "$ECS_SERVICE",
+          "networkMode": "awsvpc",
+          "requiresCompatibilities": ["FARGATE"],
+          "cpu": "512", "memory": "1024",
+          "executionRoleArn": "arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/ecsTaskExecutionRole",
+          "containerDefinitions": [{
+            "name": "$ECS_SERVICE",
+            "image": "$REGISTRY/$ECR_REPO:$IMAGE_TAG",
+            "portMappings": [{"containerPort": 8000}],
+            "essential": true,
+            "environment": [{"name": "PORT", "value": "8000"}],
+            "secrets": [
+              {"name": "ASTRA_DB_APPLICATION_TOKEN", "valueFrom": "arn:aws:ssm:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:parameter/enterprise-assistant/astra-token"},
+              {"name": "ASTRA_DB_API_ENDPOINT", "valueFrom": "arn:aws:ssm:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:parameter/enterprise-assistant/astra-endpoint"},
+              {"name": "GROQ_API_KEY", "valueFrom": "arn:aws:ssm:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:parameter/enterprise-assistant/groq-key"}
+            ],
+            "logConfiguration": {
+              "logDriver": "awslogs",
+              "options": {
+                "awslogs-group": "/ecs/$ECS_SERVICE",
+                "awslogs-region": "$AWS_REGION",
+                "awslogs-stream-prefix": "ecs"
+              }
+            }
+          }]
+        }
+        EOF
+        
+        # Register & Deploy
+        TASK_ARN=$(aws ecs register-task-definition --cli-input-json file://task.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $TASK_ARN --force-new-deployment
+        aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
+        echo "🚀 Deployed: $REGISTRY/$ECR_REPO:$IMAGE_TAG"
