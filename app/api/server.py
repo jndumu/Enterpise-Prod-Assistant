@@ -10,12 +10,15 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 try:
-    from fastapi import FastAPI, HTTPException, WebSocket
+    from fastapi import FastAPI, HTTPException, WebSocket, Request, Form, UploadFile, File
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.templating import Jinja2Templates
+    from fastapi.responses import HTMLResponse
     from pydantic import BaseModel
     import uvicorn
 except ImportError:
-    raise ImportError("Please install fastapi uvicorn: pip install fastapi uvicorn")
+    raise ImportError("Please install fastapi uvicorn jinja2: pip install fastapi uvicorn jinja2 python-multipart")
 
 import sys
 import os
@@ -69,10 +72,14 @@ class MCPServer:
         
         # Initialize FastAPI app
         self.app = FastAPI(
-            title="MCP Semantic Search Server",
-            description="Production-ready semantic search with web fallback",
+            title="Enterprise Production Assistant",
+            description="AI-powered document Q&A system with web search",
             version="1.0.0"
         )
+        
+        # Setup templates and static files
+        self.templates = Jinja2Templates(directory="frontend/templates")
+        self.app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
         
         # Add CORS middleware
         self.app.add_middleware(
@@ -88,30 +95,43 @@ class MCPServer:
     def _setup_routes(self):
         """Setup API routes."""
         
-        @self.app.get("/")
-        async def root():
-            return {"message": "MCP Semantic Search Server", "status": "running"}
+        @self.app.get("/", response_class=HTMLResponse)
+        async def root(request: Request):
+            return self.templates.TemplateResponse("rag_interface.html", {"request": request})
+        
+        @self.app.get("/app", response_class=HTMLResponse)
+        async def app_interface(request: Request):
+            return self.templates.TemplateResponse("rag_interface.html", {"request": request})
         
         @self.app.get("/health")
         async def health_check():
             status = self.client.get_system_status()
             return {"status": "healthy", "components": status}
         
-        @self.app.post("/query", response_model=QueryResponse)
-        async def query(request: QueryRequest):
+        @self.app.post("/query")
+        async def query(request: QueryRequest = None, question: str = Form(None)):
             try:
-                # Update threshold if provided
-                if request.threshold:
-                    self.client.threshold = request.threshold
+                # Handle both JSON and form data
+                if request:
+                    query_text = request.question
+                    threshold = request.threshold or 0.7
+                elif question:
+                    query_text = question
+                    threshold = 0.7
+                else:
+                    raise HTTPException(status_code=400, detail="No question provided")
                 
-                result = self.client.query(request.question)
+                # Update threshold if provided
+                self.client.threshold = threshold
+                
+                result = self.client.query(query_text)
                 result["timestamp"] = datetime.now().isoformat()
                 
-                return QueryResponse(**result)
+                return result
                 
             except Exception as e:
                 logger.error(f"Query error: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
         
         @self.app.post("/batch-query")
         async def batch_query(request: BatchQueryRequest):

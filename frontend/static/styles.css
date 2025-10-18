@@ -80,3 +80,73 @@ input:focus {
   font-size: 18px;
   color: #334155;
 }
+
+/* RAG Interface Specific Styles */
+.sub {
+  margin: 0 0 20px;
+  font-size: 16px;
+  color: #64748b;
+  text-align: center;
+}
+
+textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  outline: none;
+  background: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+textarea:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+input[type="file"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.btn:not(:last-child) {
+  margin-bottom: 10px;
+}
+
+.btn.secondary {
+  background: #6b7280;
+}
+
+.btn.danger {
+  background: #dc2626;
+}
+
+#answer-section {
+  margin-top: 20px;
+}
+
+#answer-content {
+  background: #f8fafc;
+  padding: 20px;
+  border-radius: 10px;
+  border-left: 4px solid #3b82f6;
+  line-height: 1.6;
+}
+
+#answer-meta {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+}
+
+#upload-status, #session-info {
+  font-size: 14px;
+  margin: 10px 0;
+}
