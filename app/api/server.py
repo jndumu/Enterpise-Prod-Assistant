@@ -133,6 +133,34 @@ class MCPServer:
                 logger.error(f"Query error: {e}")
                 return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
         
+        @self.app.post("/upload")
+        async def upload_file(file: UploadFile = File(...)):
+            try:
+                if not file.filename.lower().endswith('.pdf'):
+                    return {"success": False, "error": "Only PDF files are supported"}
+                
+                # Read file content
+                content = await file.read()
+                
+                # Process the document through MCP client
+                result = self.client.process_document(content, file.filename)
+                
+                return {
+                    "success": True,
+                    "message": f"Document '{file.filename}' processed successfully",
+                    "document_id": result.get("document_id", "unknown"),
+                    "chunks_processed": result.get("chunks_count", 0),
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+            except Exception as e:
+                logger.error(f"Upload error: {e}")
+                return {
+                    "success": False,
+                    "error": f"Failed to process document: {str(e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+        
         @self.app.post("/batch-query")
         async def batch_query(request: BatchQueryRequest):
             try:
@@ -205,7 +233,29 @@ class MCPServer:
 # Convenience function to start server
 def start_server(**kwargs):
     """Start MCP server with environment variables or provided arguments."""
-    server = MCPServer(**kwargs)
+    # Load environment variables with fallback to SSM parameters
+    import os
+    from dotenv import load_dotenv
+    
+    load_dotenv()
+    
+    # Try to get from environment variables first, then from SSM if in AWS
+    config = {
+        "astra_token": os.getenv("ASTRA_DB_APPLICATION_TOKEN"),
+        "astra_api_endpoint": os.getenv("ASTRA_DB_API_ENDPOINT"), 
+        "api_key": os.getenv("GROQ_API_KEY"),
+        "provider": "groq"
+    }
+    
+    # Override with any provided kwargs
+    config.update(kwargs)
+    
+    # Remove None values
+    config = {k: v for k, v in config.items() if v is not None}
+    
+    logger.info(f"Starting server with config keys: {list(config.keys())}")
+    
+    server = MCPServer(**config)
     server.run()
 
 if __name__ == "__main__":
