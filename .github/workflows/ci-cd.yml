@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: us-east-2
   ECR_REPO: enterprise-assistant
 
 jobs:
@@ -40,6 +40,7 @@ jobs:
     
     - name: Deploy
       run: |
-        docker build -t ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }} .
-        docker push ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}
-        echo "🚀 Deployed: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:${{ github.sha }}"
+        docker build -t ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest .
+        docker push ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest
+        aws ecs update-service --cluster enterprise-assistant --service enterprise-assistant-simple-service --force-new-deployment --region ${{ env.AWS_REGION }}
+        echo "🚀 Deployed: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPO }}:latest"
