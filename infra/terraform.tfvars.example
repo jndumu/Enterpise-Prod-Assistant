@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and fill in your values
+
+app_name    = "enterprise-assistant"
+aws_region  = "us-east-1"
+
+# Required API Keys
+astra_db_token    = "AstraCS:your_token_here"
+astra_db_endpoint = "https://your-db-id-region.apps.astra.datastax.com"
+groq_api_key      = "gsk_your_groq_api_key_here"
+
+# Optional
+serper_api_key = "your_serper_api_key_here"
