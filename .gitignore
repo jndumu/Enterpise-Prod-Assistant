@@ -66,3 +66,6 @@ htmlcov/
 **/terraform.tfstate*
 **/terraform.tfvars
 **/*.tfplan
+
+# Module Documentation (local only)
+MODULE_DOCUMENTATION.md
