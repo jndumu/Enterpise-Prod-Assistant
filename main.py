@@ -88,6 +88,30 @@ async def health():
         "timestamp": datetime.now().isoformat()
     }
 
+@app.get("/debug/documents")
+async def debug_documents():
+    """
+    Debug endpoint to check document storage.
+    
+    Returns:
+        dict: Document information for debugging
+    """
+    doc_info = []
+    for doc_id, doc in documents.items():
+        doc_info.append({
+            "id": doc_id,
+            "filename": doc["filename"],
+            "pages": doc["pages"],
+            "word_count": doc["word_count"],
+            "text_preview": doc["text"][:200] + "..." if len(doc["text"]) > 200 else doc["text"],
+            "uploaded_at": doc["uploaded_at"]
+        })
+    
+    return {
+        "total_documents": len(documents),
+        "documents": doc_info
+    }
+
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
     """
@@ -173,48 +197,107 @@ async def query(request: Optional[QueryRequest] = None, question: str = Form(Non
         if not q:
             return {"success": False, "error": "No question provided"}
         
-        # STEP 1: Search uploaded documents with improved matching
+        # STEP 1: Search uploaded documents with robust matching
         best_match = None
         best_score = 0
         
+        print(f"DEBUG: Searching {len(documents)} documents for: '{q}'")  # Debug log
+        
         for doc_id, doc in documents.items():
-            # Enhanced text processing
+            print(f"DEBUG: Checking document {doc['filename']} with {doc['word_count']} words")  # Debug log
+            
+            # Enhanced text processing - more inclusive word filtering
             doc_text = doc["text"].lower()
-            question_words = [word.lower().strip('.,!?;:') for word in q.split() if len(word) > 2]
+            question_words = [word.lower().strip('.,!?;:"()[]') for word in q.split() if len(word) > 1]  # Changed from >2 to >1
             
-            # Split document into sentences for better context
-            sentences = [s.strip() for s in doc["text"].replace('\n', ' ').split('.') if len(s.strip()) > 30]
+            print(f"DEBUG: Question words: {question_words}")  # Debug log
             
-            for sentence in sentences:
-                sentence_lower = sentence.lower()
-                # Calculate relevance score based on word matches
-                word_matches = sum(1 for word in question_words if word in sentence_lower)
+            # Multiple text chunking strategies for better matching
+            text_chunks = []
+            
+            # Strategy 1: Split by sentences (periods, exclamation, question marks)
+            sentences = [s.strip() for s in doc["text"].replace('\n', ' ').replace('!', '.').replace('?', '.').split('.') if len(s.strip()) > 20]
+            text_chunks.extend(sentences)
+            
+            # Strategy 2: Split by paragraphs (double newlines in raw text)
+            paragraphs = [p.strip() for p in doc["raw_text"].split('\n\n') if len(p.strip()) > 50]
+            text_chunks.extend(paragraphs)
+            
+            # Strategy 3: Fixed-size chunks for very long documents
+            words = doc["text"].split()
+            if len(words) > 100:
+                chunk_size = 50
+                for i in range(0, len(words), chunk_size):
+                    chunk = ' '.join(words[i:i+chunk_size*2])  # Overlapping chunks
+                    if len(chunk) > 100:
+                        text_chunks.append(chunk)
+            
+            print(f"DEBUG: Generated {len(text_chunks)} text chunks")  # Debug log
+            
+            # Search through all text chunks
+            for chunk in text_chunks:
+                chunk_lower = chunk.lower()
                 
-                if word_matches > 0:
-                    # Calculate relevance score (0-1)
-                    relevance_score = word_matches / len(question_words)
-                    # Bonus for longer matches and sentence length
-                    if len(sentence) > 50:
-                        relevance_score += 0.1
+                # Multiple matching strategies
+                matches = 0
+                total_words = len(question_words)
+                
+                # Exact word matches
+                exact_matches = sum(1 for word in question_words if word in chunk_lower)
+                
+                # Partial word matches (for stemming-like effects)
+                partial_matches = 0
+                for word in question_words:
+                    if len(word) > 3:  # Only for longer words
+                        word_stem = word[:len(word)-1]  # Remove last character
+                        if word_stem in chunk_lower and word not in chunk_lower:
+                            partial_matches += 0.5
+                
+                # Phrase matching bonus
+                phrase_bonus = 0
+                if len(question_words) >= 2:
+                    question_phrase = ' '.join(question_words)
+                    if question_phrase in chunk_lower:
+                        phrase_bonus = 0.3
+                
+                # Calculate total relevance score
+                total_matches = exact_matches + partial_matches + phrase_bonus
+                
+                if total_matches > 0:
+                    # More lenient scoring
+                    relevance_score = total_matches / max(total_words, 1)
                     
-                    if relevance_score > best_score and relevance_score > 0.3:
+                    # Bonus factors
+                    if len(chunk) > 100: relevance_score += 0.05
+                    if exact_matches >= 2: relevance_score += 0.1
+                    
+                    # Lower threshold for better recall
+                    if relevance_score > best_score and relevance_score > 0.1:  # Lowered from 0.3 to 0.1
                         best_score = relevance_score
                         best_match = {
-                            "answer": sentence[:800] + "..." if len(sentence) > 800 else sentence,
+                            "answer": chunk[:1000] + "..." if len(chunk) > 1000 else chunk,
                             "filename": doc["filename"],
-                            "confidence": min(0.95, relevance_score + 0.2)
+                            "confidence": min(0.95, relevance_score * 0.8 + 0.2),  # More conservative confidence
+                            "matches": exact_matches,
+                            "relevance": relevance_score
                         }
+                        print(f"DEBUG: New best match found - Score: {relevance_score:.3f}, Matches: {exact_matches}")  # Debug log
         
         # Return best document match if found
         if best_match:
+            print(f"DEBUG: Returning document match with confidence {best_match['confidence']:.3f}")  # Debug log
             return {
                 "success": True,
                 "answer": best_match["answer"],
                 "source": "uploaded_document",
                 "filename": best_match["filename"],
                 "confidence": best_match["confidence"],
+                "matches_found": best_match["matches"],
+                "relevance_score": best_match["relevance"],
                 "timestamp": datetime.now().isoformat()
             }
+        
+        print(f"DEBUG: No document matches found, trying web search...")  # Debug log
         
         # STEP 2: Fallback to web search using DuckDuckGo
         try:
