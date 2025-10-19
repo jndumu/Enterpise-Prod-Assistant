@@ -56,11 +56,103 @@ app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
 # In-memory document storage (production would use persistent vector database)
 documents: Dict[str, Dict] = {}
 
+# Conversation memory for follow-up questions
+conversation_history: Dict[str, list] = {}  # session_id -> [conversation]
+
+# Content moderation keywords
+HARMFUL_KEYWORDS = [
+    'violence', 'harmful', 'illegal', 'explicit', 'inappropriate', 'offensive',
+    'hate', 'discrimination', 'abuse', 'threat', 'dangerous', 'toxic'
+]
+
+PROFANITY_FILTER = [
+    # Basic content filter - add more as needed
+    'spam', 'scam', 'fraud'
+]
+
 # === DATA MODELS ===
 
 class QueryRequest(BaseModel):
     """Request model for API questions."""
     question: str
+    session_id: Optional[str] = None
+
+# === UTILITY FUNCTIONS ===
+
+def moderate_content(text: str) -> tuple[bool, str]:
+    """
+    Check content for inappropriate material.
+    
+    Returns:
+        tuple: (is_safe: bool, reason: str)
+    """
+    text_lower = text.lower()
+    
+    # Check for harmful keywords
+    for keyword in HARMFUL_KEYWORDS:
+        if keyword in text_lower:
+            return False, f"Content contains inappropriate material: {keyword}"
+    
+    # Check for profanity
+    for word in PROFANITY_FILTER:
+        if word in text_lower:
+            return False, f"Content contains filtered language: {word}"
+    
+    # Additional safety checks
+    if len(text) > 2000:
+        return False, "Question too long (max 2000 characters)"
+    
+    if text.count('http') > 5 or text.count('www') > 3:
+        return False, "Too many URLs detected"
+    
+    return True, "Content is safe"
+
+def get_conversation_context(session_id: str, max_history: int = 3) -> str:
+    """
+    Get conversation context for follow-up questions.
+    
+    Args:
+        session_id: Session identifier
+        max_history: Maximum number of previous exchanges to include
+    
+    Returns:
+        str: Formatted conversation context
+    """
+    if session_id not in conversation_history:
+        return ""
+    
+    history = conversation_history[session_id][-max_history:]
+    context = ""
+    
+    for i, exchange in enumerate(history):
+        context += f"Previous Q{i+1}: {exchange['question']}\n"
+        context += f"Previous A{i+1}: {exchange['answer'][:200]}...\n\n"
+    
+    return context
+
+def store_conversation(session_id: str, question: str, answer: str, source: str):
+    """
+    Store conversation exchange in memory.
+    
+    Args:
+        session_id: Session identifier
+        question: User's question
+        answer: System's answer
+        source: Source of the answer
+    """
+    if session_id not in conversation_history:
+        conversation_history[session_id] = []
+    
+    conversation_history[session_id].append({
+        "question": question,
+        "answer": answer,
+        "source": source,
+        "timestamp": datetime.now().isoformat()
+    })
+    
+    # Keep only last 10 exchanges per session
+    if len(conversation_history[session_id]) > 10:
+        conversation_history[session_id] = conversation_history[session_id][-10:]
 
 # === API ENDPOINTS ===
 
@@ -110,6 +202,29 @@ async def debug_documents():
     return {
         "total_documents": len(documents),
         "documents": doc_info
+    }
+
+@app.get("/debug/conversations")
+async def debug_conversations():
+    """
+    Debug endpoint to check conversation history.
+    
+    Returns:
+        dict: Conversation history for debugging
+    """
+    conv_info = []
+    for session_id, history in conversation_history.items():
+        conv_info.append({
+            "session_id": session_id,
+            "exchange_count": len(history),
+            "last_activity": history[-1]["timestamp"] if history else None,
+            "recent_questions": [h["question"][:100] for h in history[-3:]]  # Last 3 questions
+        })
+    
+    return {
+        "total_sessions": len(conversation_history),
+        "total_exchanges": sum(len(h) for h in conversation_history.values()),
+        "sessions": conv_info
     }
 
 @app.post("/upload")
@@ -175,27 +290,48 @@ async def upload(file: UploadFile = File(...)):
         return {"success": False, "error": f"Upload failed: {str(e)}"}
 
 @app.post("/query")
-async def query(request: Optional[QueryRequest] = None, question: str = Form(None)):
+async def query(request: Optional[QueryRequest] = None, question: str = Form(None), session_id: str = Form(None)):
     """
     Answer questions using uploaded documents or web search.
+    Enhanced with conversation memory and content moderation.
     
     Args:
         request: JSON request with question (for API calls)
         question: Form data with question (for web interface)
+        session_id: Session ID for conversation tracking
         
     Returns:
         dict: Answer, source, confidence score, and metadata
         
     Search Strategy:
-        1. Search uploaded documents first (keyword matching)
-        2. Fall back to DuckDuckGo web search
-        3. Provide helpful fallback message if no results
+        1. Content moderation check
+        2. Search uploaded documents with conversation context
+        3. Fall back to DuckDuckGo web search
+        4. Provide helpful fallback message if no results
     """
     try:
-        # Extract question from either JSON or form data
+        # Extract question and session from either JSON or form data
         q = request.question if request else question
+        sid = request.session_id if request and request.session_id else session_id or "default"
+        
         if not q:
             return {"success": False, "error": "No question provided"}
+        
+        # STEP 0: Content moderation
+        is_safe, moderation_reason = moderate_content(q)
+        if not is_safe:
+            return {
+                "success": False, 
+                "error": f"Content moderation: {moderation_reason}",
+                "moderated": True,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+        # Get conversation context for follow-up questions
+        context = get_conversation_context(sid)
+        enhanced_query = f"{context}Current question: {q}" if context else q
+        
+        print(f"DEBUG: Session {sid} - Enhanced query with context: {len(context)} chars context")  # Debug log
         
         # STEP 1: Search uploaded documents with robust matching
         best_match = None
@@ -286,7 +422,8 @@ async def query(request: Optional[QueryRequest] = None, question: str = Form(Non
         # Return best document match if found
         if best_match:
             print(f"DEBUG: Returning document match with confidence {best_match['confidence']:.3f}")  # Debug log
-            return {
+            
+            response = {
                 "success": True,
                 "answer": best_match["answer"],
                 "source": "uploaded_document",
@@ -294,8 +431,15 @@ async def query(request: Optional[QueryRequest] = None, question: str = Form(Non
                 "confidence": best_match["confidence"],
                 "matches_found": best_match["matches"],
                 "relevance_score": best_match["relevance"],
+                "session_id": sid,
+                "has_context": bool(context),
                 "timestamp": datetime.now().isoformat()
             }
+            
+            # Store conversation for follow-up questions
+            store_conversation(sid, q, best_match["answer"], "uploaded_document")
+            
+            return response
         
         print(f"DEBUG: No document matches found, trying web search...")  # Debug log
         
@@ -306,24 +450,40 @@ async def query(request: Optional[QueryRequest] = None, question: str = Form(Non
             data = response.json()
             
             if data.get("Abstract"):
-                return {
+                response = {
                     "success": True,
                     "answer": data["Abstract"],
                     "source": "web_search",
                     "confidence": 0.7,
+                    "session_id": sid,
+                    "has_context": bool(context),
                     "timestamp": datetime.now().isoformat()
                 }
+                
+                # Store conversation for follow-up questions
+                store_conversation(sid, q, data["Abstract"], "web_search")
+                
+                return response
         except Exception:
             pass  # Web search failed, continue to fallback
         
         # STEP 3: Default helpful response
-        return {
+        fallback_answer = "I don't have specific information about that. Try uploading a relevant document or rephrasing your question."
+        
+        response = {
             "success": True,
-            "answer": "I don't have specific information about that. Try uploading a relevant document or rephrasing your question.",
+            "answer": fallback_answer,
             "source": "fallback",
             "confidence": 0.3,
+            "session_id": sid,
+            "has_context": bool(context),
             "timestamp": datetime.now().isoformat()
         }
+        
+        # Store conversation for follow-up questions
+        store_conversation(sid, q, fallback_answer, "fallback")
+        
+        return response
         
     except Exception as e:
         return {"success": False, "error": f"Query failed: {str(e)}"}

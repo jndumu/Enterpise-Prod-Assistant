@@ -167,6 +167,10 @@
     </div>
 
     <script>
+        // Generate session ID for conversation tracking
+        const sessionId = 'session_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+        console.log('Session ID:', sessionId);
+        
         async function upload() {
             const file = document.getElementById('file').files[0];
             const statusDiv = document.getElementById('upload-status');
@@ -206,6 +210,7 @@
             
             const formData = new FormData();
             formData.append('question', question);
+            formData.append('session_id', sessionId);
             
             document.getElementById('answer').innerHTML = 'Thinking...';
             document.getElementById('answer').style.display = 'block';
@@ -224,12 +229,22 @@
                     
                     sourceInfo += ` | Confidence: ${Math.round(result.confidence * 100)}%`;
                     
+                    // Add memory and session info
+                    let memoryInfo = '';
+                    if (result.has_context) {
+                        memoryInfo = '<br><small>💭 Using conversation context for better answers</small>';
+                    }
+                    
                     document.getElementById('answer').innerHTML = 
                         `<strong>🤖 AI Answer:</strong><br><br>${result.answer}<br><br>
-                         <small style="opacity: 0.8;">📄 ${sourceInfo}</small>`;
+                         <small style="opacity: 0.8;">📄 ${sourceInfo}${memoryInfo}</small>`;
                 } else {
                     document.getElementById('answer').className = 'error';
-                    document.getElementById('answer').innerHTML = `<strong>❌ Error:</strong><br>${result.error}`;
+                    let errorMsg = result.error;
+                    if (result.moderated) {
+                        errorMsg = '🚫 ' + errorMsg + '<br><small>Content was filtered for safety</small>';
+                    }
+                    document.getElementById('answer').innerHTML = `<strong>❌ Error:</strong><br>${errorMsg}`;
                 }
             } catch (error) {
                 document.getElementById('answer').className = 'error';
